@@ -1,0 +1,300 @@
+---
+title: "On sam configuration and sr estimates"
+author: "Einar Hjörleifsson"
+date: "2017-07-17"
+output: 
+  html_document: 
+    fig_width: 9
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+# NOTE: Input based on output from: R/code/sr_fit_msy.R
+```
+
+```{r}
+#library(FLCore)
+#library(msy)
+library(cowplot)
+library(tidyverse)
+theme_set(theme_gray())
+# devtools::install_github("fishfollower/SAM/stockassessment", ref="mack")
+# library(stockassessment)
+# source function (ntable, faytable, ... from stockassessment ref = "main"
+source("https://github.com/fishfollower/SAM/raw/master/stockassessment/R/tables.R")
+source("R/functions/read_mac.R")
+
+
+# The benchmark assessment
+load("ass/wkwide/fitAR-2.RData")
+rbx <- fit %>% read_mac(path = "ass/wkwide")
+cnf <- fit$conf$keyVarObs
+
+rby <- 
+  rbx$rby %>% 
+  mutate(hr.tsb = oY/tsb,
+         hr.ssb = oY/ssb)
+rbya <- rbx$rbya
+
+# -----------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+# Alternative sam configurations results
+# NOTE: 
+#   Input: based on using codes ass/einar/run_x.R
+#   Output (here used as input): ass/einar/fit_runX.rda
+# -----------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+
+# Run 1
+load("ass/einar/fit_run1.rda")
+#> fit$conf$keyVarObs
+# [1] 0 1 1 1 1 1 1 1 1 1 1 1 1
+rbx1 <- fit %>% read_mac(path = "ass/einar")
+rby1 <- rbx1$rby %>% mutate(model = "sam1")
+rbya1 <- rbx1$rbya %>% mutate(model = "sam1")
+cnf1 <- fit$conf$keyVarObs
+# Run 2
+load("ass/einar/fit_run2.rda")
+#> fit$conf$keyVarObs[1,]
+# [1] 0 1 2 2 2 2 2 2 2 2 2 2 2
+rbx2  <- fit %>% read_mac(path = "ass/einar")
+rby2  <- rbx2$rby %>% mutate(model = "sam2")
+rbya2 <- rbx2$rbya %>% mutate(model = "sam2")
+cnf2  <- fit$conf$keyVarObs
+
+load("ass/einar/fit_run4.rda")
+#> fit$conf$keyVarObs[1,]
+# [1] 0 1 2 2 2 2 2 2 2 2 2 2 2
+rbx4  <- fit %>% read_mac(path = "ass/einar")
+rby4  <- rbx4$rby %>% mutate(model = "sam4")
+rbya4 <- rbx4$rbya %>% mutate(model = "sam4")
+cnf4  <- fit$conf$keyVarObs
+
+# A separable model
+rbx.h <-
+  fishvice::read_separ("/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/2periods",
+                       "HockeyEstAcf",
+                       run = "HockeyEstAcf",
+                       mName = "sep")
+rbya.h <- rbx.h$rbya %>% as_tibble()
+rby.h <- rbx.h$rby %>% as_tibble() %>% 
+  mutate(r = r/1e3,
+         ssb = ssb/1e3) %>% 
+  filter(year <= 2016)
+```
+
+Although it is absolutely not on the agenda, I decided to look a little bit into the sam setup. But because it is not on the agenda, I guess nobody should be reading the text that follows.
+
+In the benchmark configuration the observation variance for all age group are a priori defined to be equivalent:
+```{r}
+colnames(cnf) <- 0:12
+cnf
+```
+
+Which basically means that we are assuming that all age groups in the catches are measured with the same precision. This we know is not close to reality, if only because sampling size from the fisheries is generally lowest in the younger and oldest age groups. For the former it is because the fish are entering into the fishery, for the latter it is because there are less fish (if one assumes that selectivity by age is of some logistic shape) - just to state the obvious.
+
+In the tools used by Höski the shape of the cv pattern for the different age groups are normally approximated by some external method. E.g. by using a Shepard-Nicholson model. These values are then used as scalar inputs into the framework and a single multiplier (variance) on the pattern is then estimated internally. The current scalar input pattern by age by Höski are something like this:
+
+```
+   0    1    2    3    4    5    6    7    8    9   10   11   12
+0.54 0.40 0.33 0.31 0.16 0.20 0.23 0.25 0.22 0.20 0.24 0.24 0.45
+
+```
+
+Unfortunately such a setup is not available in sam. Or if so, unknown to the present sam-fiddler. As an alternative here one explores the effect of changing the setting of the catch at age variance configuration. Starting by estimating the variance on age group 0 separately from the older age group (run1):
+
+```{r}
+colnames(cnf1) <- 0:12
+cnf1
+```
+
+And then estimating the variance on age group 0 and 1 separately from the older age group (run2):
+
+```{r}
+colnames(cnf2) <- 0:12
+cnf2
+```
+
+An attempt to estimate the observation variance separately for age groups 0, 1, 2 and 3+ resulted in no convergence in sam.
+
+The key output metrics from this exercise are summarized in the following graph:
+
+```{r}
+bind_rows(rby, rby1, rby2) %>%
+  select(year, model, ssb, tsb, fbar, r) %>% 
+  gather(variable, value, ssb:r) %>% 
+  ggplot(aes(year, value, colour = model)) +
+  geom_line(lwd = 1) +
+  facet_wrap(~ variable, scale = "free_y") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_x_continuous(breaks = seq(1980, 2020, by = 5)) +
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = NULL, y = NULL,
+       Title = "Comparison of benchmark config (sam) and 2 alternative settings") +
+  theme(legend.position = c(0.075, 0.85))
+```
+
+The above shows that the main difference is in the recruitment estimates. If one focuses only on the large yearclasses one observes e.g. that the estimates of the 2014 yearclass (have only catch observations at age 0 and 1 and survey index at age 0), is reduced, because by estimating the observation variance of age 0 separately from the older age groups puts relatively more weight on survey index at age 0 (which is nothing extraordinary). Of other notable changes on the larger recruitment estimate one may note that the 2006 and 2002 year class estimates are revised downwards, while the 2005 year class has been revised upwards.
+
+Intuitively one might have expected that by estimating the observations variance in the catches on the youngest age groups separately that the magnitude of the process error in these age groups would diminish. That is however not obvious from the following visualization:
+
+```{r}
+bind_rows(rbya, rbya1, rbya2) %>% 
+  filter(yc >= 1980, 
+         age <= 2) %>% 
+  ggplot(aes(yc, p.n)) +
+  geom_col() +
+  geom_hline(yintercept = 0) +
+  #ggmisc::scale_fill_crayola() +
+  scale_x_continuous(breaks = seq(1980, 2020, by = 10)) +
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = "Year class", y = "Process error in numbers") +
+  facet_grid(age ~ model)
+```
+
+Now, some "Narrowfjord stories" could be tried here on to explain the changes in patterns, but that is not attempted. This exercise though demonstrates that the intuitive expectations are not realized, likely because of some quaternary effects of the process error within sam. That can be seen when one compares the process error expressed as netto biomass between the benchmark and run1: 
+
+```{r}
+d <- 
+  bind_rows(rbya, rbya1) %>%
+  group_by(model, year) %>% 
+  summarise(p.b = sum(p.b, na.rm = TRUE),
+            oY = sum(oC * cW, na.rm = TRUE))
+d %>% 
+  ggplot(aes(year, p.b)) +
+  geom_col() +
+  geom_point(aes(y = oY), colour = "red", size = 0.25) +
+  facet_grid(model ~ .) +
+  scale_x_continuous(breaks = seq(1980, 2020, by = 10)) +
+  labs(x = NULL, y = "Process error expressed as biomass",
+       title = "Process error as netto biomass",
+       subtitle = "Reported catches are displayed as red dots")
+```
+
+Basically one seem to have increased, at least the extremes of the process error by changing only one setting in the configuration file. Note in particular that the additional netto biomass thrown into the stock in the year 2013 is now higher than the catches that year :-). 
+
+Although it is not sensible to pass the sam result through the eq_sim module (if only because the process error is not carried forward) it may be of interest to see what the effect of the change in the recruitment estimates have on the the stock recruitment relationship.
+
+
+```{r}
+# See R/code/sr_fit_msy.R
+load("data/sr_sam0.rda")
+load("data/sr_sam2.rda")
+plot_grid(sr.sam0$sr.plot[[2]], sr.sam2$sr.plot[[2]])
+```
+
+The above comparison are based on year range 1990 to 2015, as was done in the benchmark. It can be noted that the effect on the median is not high, but the benchmark result in higher recruitment variability.
+
+
+For sake of completeness, results of the different configurations and year ranges tested are included here below:
+
+```{r}
+plot_grid(sr.sam0$sr.plot[[1]], sr.sam0$sr.plot[[2]], sr.sam0$sr.plot[[3]], nrow = 1)
+plot_grid(sr.sam2$sr.plot[[1]], sr.sam2$sr.plot[[2]], sr.sam2$sr.plot[[3]], nrow = 1)
+
+```
+
+Of things to notice is that by using other year ranges than that used in the benchmark (1990 -2015) one obtains a more pessimistic "promise" of higher recruitment at higher stock size.
+
+**Conclusion** (for whatever it is worth): The above exploration shows that
+
+* The estimates on recruitment can change substantially if one estimates the observation variance in the youngest age groups separately from the older age groups.
+* That trying to estimate the observation variance of more than three sets of age groups (0, 1, and 2+), even if sensible is not possible because sam does not converge on the current data set.
+* That the estimates on the median recruitment as a function of age do not show marked difference depending on the two different configurations in observation variance, that the variability in recruitment is likely higher in the benchmark settings (as expected given the lower cv in the recruitment estimates) and that selection of year ranges matter.
+
+
+```{r, eval = FALSE}
+fit.1980.2015 <- 
+  Mac %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p1 <-
+  fit.1980.2015 %>% 
+  eqsr_tidy(Scale = 1e6, name = "benchmark") %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Benchmark, years: 1980-2015") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+fit.1990.2015 <- 
+  Mac %>% 
+  FLCore::trim(year = 1990:2015) %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p2 <-
+  fit.1990.2015 %>% 
+  eqsr_tidy(Scale = 1e6, name = "benchmark") %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Benchmark, years: 1990-2015") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+fit.1980.2013 <- 
+  Mac %>% 
+  FLCore::trim(year = 1980:2013) %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p3 <-
+  fit.1980.2013 %>% 
+  eqsr_tidy(Scale = 1e6, name = "benchmark") %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Benchmark, years: 1980-2013") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+plot_grid(p1, p2, p3, nrow = 1)
+```
+
+```{r, fig.width = 9, eval = FALSE}
+source("R/sam_to_flr.R")
+load("ass/einar/fit_run2.rda")
+flr <- fit %>% sam_to_flr()
+fit2.1980.2015 <- 
+  flr %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p1 <-
+  fit2.1980.2015 %>% 
+  eqsr_tidy(Scale = 1e6) %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Run2, years: 1980-2015") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+fit2.1990.2015 <- 
+  flr %>% 
+  FLCore::trim(year = 1990:2015) %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p2 <-
+  fit2.1990.2015 %>% 
+  eqsr_tidy(Scale = 1e6) %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Run2, years: 1990-2015") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+fit2.1980.2013 <- 
+  flr %>% 
+  FLCore::trim(year = 1980:2013) %>% 
+  eqsr_fit(nsamp = 2500,
+           models = c("Bevholt", "Segreg"))
+p3 <-
+  fit2.1980.2013 %>% 
+  eqsr_tidy(Scale = 1e6) %>% 
+  eqsr_tidy_plot(n = 2e4) +
+  labs(title = "Run2, years: 1980-2013") +
+  coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+  scale_y_continuous(breaks = 1:11)
+plot_grid(p1, p2, p3, nrow = 1)
+```
+
+**Session info**:
+```{r}
+devtools::session_info()
+```
+
