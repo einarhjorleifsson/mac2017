@@ -1,0 +1,208 @@
+---
+title: "eq_sim confronts sam and sep"
+author: "Einar Hjörleifsson"
+date: "17 July 2017"
+output:
+  html_document: 
+    fig_height: 6
+    fig_width: 9
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+library(FLCore)
+library(msy)
+library(cowplot)
+library(tidyverse)
+theme_set(theme_gray())
+source("R/functions/rbx_to_flr.R")
+source("R/functions/eqsr_tidy.R")
+source("R/functions/eqsr_tidy_plot.R")
+```
+
+## Preamble
+
+This is work in progress ...
+
+At the webex 2017-07-17 is was considered of some value to run the stock-recruitment pairs from sam vs sep models through the eqsim part of the msy-package machinery.
+
+## The eqsr_fit part
+
+Here ran both framework results through the stock recruitment part of the msy. Used three diffferent year ranges:
+
+* 1980-2015: the full time series
+* 1990-2015: the time period run at wkwide
+* 1980-2013: full time series but dropping off the most recent years (where uncertainty in the data is greater)
+
+In all cases allowed only Beverton and Segmented regreg models (that being done at wkwide)
+
+Below is the code and a pairwise results (sam0 is the wkwide final run, sep is husky's current preferred run):
+
+```{r, eval = FALSE}
+# ------------------------------------------------------------------------------
+# STUFF NOT RUN, see saved object at bottom of chunk
+
+# ------------------------------------------------------------------------------
+# separable model
+rbx <-
+  fishvice::read_separ("/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/2periods/",
+                       "HockeyAcf00",
+                       run = "HockeyEstAcf",
+                       mName = "sep")
+
+
+rbya <- 
+  rbx$rbya %>% 
+  as_tibble() %>% 
+  filter(year <= 2016)
+# NOTE: need the right pF and pM
+rbya$dW <- rbya$lW <- rbya$pF <- rbya$pM <- 0
+# put input in first columns, then n then the rest
+rbya <-
+  rbya %>% 
+  select(year:sW, mat, m, f, pM:dW, n, ssbW, z, f, pC:assYear) %>% 
+  mutate(n = n * 1e3)
+rby <- 
+  rbx$rby %>% 
+  as_tibble() %>% 
+  mutate(r = r * 1e6,
+         ssb = ssb * 1e6,
+         oY = oY * 1e3) %>% 
+  filter(year <= 2016)
+rbx <- list(rby = rby, rbya = rbya)
+
+flr <- 
+  rbx %>% 
+  rbx_to_flr()
+
+sr.fit <- sr.tidy <- sr.plot <-  list()
+cntr <-
+  list(yr = list(c(1980:2015), c(1990:2015), c(1980:2013)),
+       name = list("sep 1980:2015", "sep 1990:2015", "sep 1980:2013"))
+
+for (i in 1:length(cntr[[1]])) {
+
+  sr.fit[[i]] <-
+    flr %>%
+    FLCore::trim(year = cntr$yr[[i]]) %>%
+    eqsr_fit(nsamp = 2500, models = c("Bevholt", "Segreg"))
+  sr.tidy[[i]] <-
+    sr.fit[[i]] %>%
+    eqsr_tidy(Scale = 1e6, name = cntr$name[[i]])
+  sr.plot[[i]] <-
+    sr.tidy[[i]] %>%
+    eqsr_tidy_plot(n = 2e4) +
+    labs(title = cntr$name[[i]]) +
+    coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+    scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+    scale_y_continuous(breaks = 1:11)
+
+}
+
+sr.sep <- list(sr.fit = sr.fit, sr.tidy = sr.tidy, sr.plot = sr.plot)
+
+# ------------------------------------------------------------------------------
+# sam
+attach("ass/wkwide/eqSim_res2016.RData")
+
+sr.fit <- sr.tidy <- sr.plot <-  list()
+cntr <-
+  list(yr = list(c(1980:2015), c(1990:2015), c(1980:2013)),
+       name = list("sam0 1980:2015", "sam0 1990:2015", "sam0 1980:2013"))
+
+for (i in 1:length(cntr[[1]])) {
+
+  sr.fit[[i]] <-
+    Mac %>%
+    FLCore::trim(year = cntr$yr[[i]]) %>%
+    msy::eqsr_fit(nsamp = 2500, models = c("Bevholt", "Segreg"))
+  sr.tidy[[i]] <-
+    sr.fit[[i]] %>%
+    eqsr_tidy(Scale = 1e6, name = cntr$name[[i]])
+  sr.plot[[i]] <-
+    sr.tidy[[i]] %>%
+    eqsr_tidy_plot(n = 2e4) +
+    labs(title = cntr$name[[i]]) +
+    coord_cartesian(xlim = c(0, 5.1), ylim = c(0, 10.5)) +
+    scale_x_continuous(breaks = seq(0, 5, by = 0.5)) +
+    scale_y_continuous(breaks = 1:11)
+
+}
+sr.sam0 <- list(sr.fit = sr.fit, sr.tidy = sr.tidy, sr.plot = sr.plot)
+
+# ------------------------------------------------------------------------------
+# save stuff
+save(sr.sep, sr.sam0, file = "data/sr_sam_sep.rda")
+```
+
+
+```{r}
+load("data/sr_sam_sep.rda")
+plot_grid(sr.sam0$sr.plot[[2]], sr.sep$sr.plot[[2]], ncol = 2)
+plot_grid(sr.sam0$sr.plot[[1]], sr.sep$sr.plot[[1]], ncol = 2)
+plot_grid(sr.sam0$sr.plot[[3]], sr.sep$sr.plot[[3]], ncol = 2)
+```
+
+## The eqsim part
+
+For now only ran the year range used at wkwide (1990 - 2015)
+
+```{r, eval = FALSE}
+sim.sam0 <- eqsim_run(sr.sam0$sr.fit[[2]], 
+                      bio.years = c(2011, 2015), 
+                      bio.const = FALSE,
+                      sel.years = c(2006, 2015),  
+                      sel.const = FALSE, 
+                      Fscan = seq(0.01,0.8 , len = 80), 
+                      Fcv = 0.35,
+                      Fphi = 0.61,
+                      SSBcv = 0.31,
+                      rhologRec = F, 
+                      Blim=1940000,
+                      Bpa=2570000,
+                      Btrigger = 0, #2570000,
+                      Nrun = 100, 
+                      process.error = TRUE, 
+                      verbose = TRUE)
+sim.sep <- eqsim_run(sr.sep$sr.fit[[2]], 
+                      bio.years = c(2011, 2015), 
+                      bio.const = FALSE,
+                      sel.years = c(2006, 2015),  
+                      sel.const = FALSE, 
+                      Fscan = seq(0.01,0.8 , len = 80), 
+                      Fcv = 0.35,
+                      Fphi = 0.61,
+                      SSBcv = 0.31,
+                      rhologRec = F, 
+                      Blim=1940000,
+                      Bpa=2570000,
+                      Btrigger = 0, #2570000,
+                      Nrun = 100, 
+                      process.error = TRUE, 
+                      verbose = TRUE)
+save(sim.sam0, sim.sep, file = "data/sim_tmp.rda")
+```
+
+```{r}
+load("data/sim_tmp.rda")
+```
+
+**The sam results** (a repeat of wkwide):
+
+```{r}
+eqsim_plot(sim.sam0)
+sim.sam0$Refs
+```
+
+
+**The sep results**:
+```{r}
+eqsim_plot(sim.sep)
+sim.sep$Refs
+```
+
