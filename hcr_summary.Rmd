@@ -1,0 +1,153 @@
+---
+title: "hcr_summary"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+Blim <- 1.94
+Bpa <- 2.57
+library(tidyverse)
+load("/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/Final/HockeyAcf0012PinFilemcrb2/HCRrun.rdata")
+d <-
+  alldata %>%
+  select(Btrigger, Meanwtyears, FishingMortality, year:refbio) %>%
+  gather(variable, value, catch:refbio) %>%
+  mutate(value = ifelse(variable != "refF", value/1e3, value),
+         value = ifelse(variable == "n1", value/1e3, value)) %>%
+  group_by(Btrigger, Meanwtyears, FishingMortality, year, variable) %>%
+  summarise(q05 = quantile(value, 0.05),
+            q25 = quantile(value, 0.25),
+            q50 = quantile(value, 0.50),
+            m = mean(value),
+            q75 = quantile(value, 0.75),
+            q95 = quantile(value, 0.95)) %>%
+  ungroup()
+
+probs <-
+  alldata %>%
+  select(Btrigger, Meanwtyears, FishingMortality, year, ssb) %>%
+  group_by(Btrigger, Meanwtyears, FishingMortality, year) %>%
+  summarise(n = n(),
+            pBlim = sum(ssb < Blim * 1e3) / n,
+            pBpa  = sum(ssb < Bpa * 1e3)  / n,
+            pBtrigger = sum(ssb < Btrigger) / n) %>%
+  ungroup()
+
+pBlim <-
+  probs %>%
+  select(Btrigger:year, q50 = pBlim) %>%
+  mutate(variable = "pBlim") %>%
+  filter(year > 2014)
+d2 <-
+  d %>%
+  bind_rows(pBlim)
+
+dummy <- 
+  data_frame(variable = c("ssb", "pBlim"),
+             lim = c(Blim, 0.05)) %>%
+  mutate(variablef = factor(variable, levels = c("ssb", "pBlim")))
+
+d2 %>%
+  filter(variable %in% c("catch", "ssb", "refF", "pBlim"),
+         Btrigger == 40,
+         Meanwtyears == 5,
+         FishingMortality %in% c(0.18, 0.20, 0.22, 0.26, 0.32)) %>%
+  mutate(variablef = factor(variable, levels=c('ssb','catch','refF','pBlim'))) %>%
+  ggplot(aes(year)) +
+  geom_vline(xintercept = 2015) +
+  geom_hline(data = dummy, aes(yintercept = lim)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "red", alpha = 0.25) +
+  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "red", alpha = 0.25) +
+  geom_line(aes(y = q50)) +
+  facet_grid(variablef ~ FishingMortality, scale = "free_y") +
+  expand_limits(y = 0)
+# We need to evaluate short-term (ST), medium-term (MT) and long-term (LT)
+# (2018-2022), medium term (2023-2032) and long term (2033-2052)
+terms <- data_frame(year = 2018:2052,
+                    term = ifelse(year %in% 2018:2022, "ST",
+                                  ifelse(year %in% 2023:2032, "MT", "LT")))
+ptable <-
+  probs %>%
+  left_join(terms) %>%
+  filter(!is.na(term),
+         FishingMortality < 0.36) %>%
+  group_by(Btrigger, Meanwtyears, FishingMortality, term) %>%
+  summarise(pBlim = round(max(pBlim) * 100, 1)) %>%
+  ungroup() %>%
+  #filter(term == "LT") %>%
+  spread(FishingMortality, pBlim) %>%
+  arrange(term, Meanwtyears, Btrigger)
+ptable %>%
+  knitr::kable(caption = "Probability of ssb going below Blim")
+d3 <-
+  d2 %>%
+  left_join(terms) %>% 
+  filter(!is.na(term)) %>% 
+  group_by(Btrigger, Meanwtyears, FishingMortality, term, variable) %>% 
+  # Not sure if one should take the mean of the medians??
+  summarise(median = mean(q50))
+d3 %>% 
+  filter(variable == "catch",
+         FishingMortality < 0.36) %>% 
+  select(-variable) %>% 
+  mutate(median = round(median, 3)) %>% 
+  spread(FishingMortality, median) %>% 
+  arrange(term, Meanwtyears, Btrigger) %>% 
+  knitr::kable(caption = "Median catch")
+d3 %>% 
+  filter(variable == "ssb",
+         FishingMortality < 0.36) %>% 
+  select(-variable) %>% 
+  mutate(median = round(median, 3)) %>% 
+  spread(FishingMortality, median) %>% 
+  arrange(term, Meanwtyears, Btrigger) %>% 
+  knitr::kable(caption = "Median ssb")
+```
+
+```{r, eval = FALSE}
+# NOT RUN
+basedir <- "/net/hafkaldi/export/u2/reikn/hoski/Mackerel"
+subdirs <- c("HockeyAcf0008PinFile",
+             "HockeyAcf0008PinFilemcrb2",
+             "HockeyAcf0012PinFile",
+             "HockeyAcf0012PinFilemcrb2",
+             "HockeyAcf00sqrt08PinFile",
+             "HockeyAcf00sqrt12PinFile",
+             "HockeyAcf00sqrt12PinFilemcrb02",
+             "HockeyAcf00FixedSSBBreak")
+txt <- c("log, low lim 800","log, low lim 800 mcrb2","log, low lim 1200","log, low lim 1200 mcrb 2","sqrt, low lim 800","sqrt low lim 1200", "sqrt low lim 1200 mcrb2","SSBbreak fixed at 2000")
+sumdata1 <- sumdata2 <- data.frame()
+for(i in 1:length(subdirs)){
+  load(paste(basedir,"HCRSimulations/Final",subdirs[i],"HCRrunsum.rdata",sep="/"))
+  sumdata$run <- txt[i]
+  sumdata20 <- sumdata[sumdata$Meanwtyears==20 & sumdata$Btrigger < 50,]
+  sumdata5 <- sumdata[sumdata$Meanwtyears==5 & sumdata$Btrigger < 50,]
+  sumdata1 <- rbind(sumdata1,sumdata20)
+  sumdata2 <- rbind(sumdata2,sumdata5)
+}
+ggplot(sumdata2, aes(FishingMortality, catchmean, col = run)) +
+  geom_vline(xintercept=seq(0.16,0.3,by=0.02),col="lightgrey") +
+  geom_line(lwd=2)+theme_bw() +
+  scale_colour_brewer(palette = "Set1") +
+  theme(legend.position=c(0.8,0.75))
+ggplot(sumdata2,aes(FishingMortality,catchmed,col=run)) +
+  theme_bw()+
+  geom_vline(xintercept=seq(0.16,0.3,by=0.02),col="lightgrey")+
+  geom_line(lwd=2)+
+  scale_colour_brewer(palette = "Set1") +
+  theme(legend.position=c(0.4,0.4))
+ggplot(sumdata2,aes(FishingMortality,ssb05,col=run))+
+  theme_bw()+
+  geom_vline(xintercept=seq(0.16,0.3,by=0.02),col="lightgrey")+
+  geom_line(lwd=1)+
+  scale_colour_brewer(palette = "Set1") +
+  theme(legend.position=c(0.8,0.7))+
+  geom_abline(intercept = 1840,lwd=2) +
+  ylab("1000 tonnes")
+#load("/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/Final/HockeyAcf0012PinFilemcrb2/HCRrunsum.rdata")
+```
+
