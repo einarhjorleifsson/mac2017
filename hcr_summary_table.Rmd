@@ -1,24 +1,42 @@
 ---
-title: "hcr_summary"
-output: html_document
+title: "hcr summary table - base run"
+output: 
+  html_document: 
+    code_folding: hide
+    fig_height: 6
+    fig_width: 9
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
 ```{r}
 Blim <- 1.94
 Bpa <- 2.57
 library(tidyverse)
-load("/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/Final/HockeyAcf0012PinFilemcrb2/HCRrun.rdata")
+
+root <- "/net/hafkaldi/export/u2/reikn/hoski/Mackerel/HCRSimulations/2periods"
+runs <- c("BevHEstAcf",
+          "HockeyEstAcf",
+          "RickerEstAcf",
+          "HockeyEstAcfdensdepnotrend",
+          "BevHEstAcfdensdepnotrend",
+          "HockeyEstAcfdensdepTrend",
+          "BevHEstAcfdensdepTrend")
+default <- "HockeyEstAcf"
+```
+
+
+```{r, eval = FALSE}
+load(paste0(root, "/", default, "/", "HCRrunresponse.rdata"))
 d <-
   alldata %>%
-  select(Btrigger, Meanwtyears, FishingMortality, year:refbio) %>%
+  select(Btrigger, Meanwtyears, FishingMortality, MaxChange, year:refbio) %>%
   gather(variable, value, catch:refbio) %>%
   mutate(value = ifelse(variable != "refF", value/1e3, value),
          value = ifelse(variable == "n1", value/1e3, value)) %>%
-  group_by(Btrigger, Meanwtyears, FishingMortality, year, variable) %>%
+  group_by(Btrigger, Meanwtyears, FishingMortality, MaxChange, year, variable) %>%
   summarise(q05 = quantile(value, 0.05),
             q25 = quantile(value, 0.25),
             q50 = quantile(value, 0.50),
@@ -29,14 +47,18 @@ d <-
 
 probs <-
   alldata %>%
-  select(Btrigger, Meanwtyears, FishingMortality, year, ssb) %>%
-  group_by(Btrigger, Meanwtyears, FishingMortality, year) %>%
+  select(Btrigger, Meanwtyears, FishingMortality, MaxChange, year, ssb) %>%
+  group_by(Btrigger, Meanwtyears, FishingMortality, MaxChange, year) %>%
   summarise(n = n(),
             pBlim = sum(ssb < Blim * 1e3) / n,
             pBpa  = sum(ssb < Bpa * 1e3)  / n,
             pBtrigger = sum(ssb < Btrigger) / n) %>%
   ungroup()
+save(d, probs, file = "data/hcr_summary_default.rda")
+```
 
+```{r}
+load("data/hcr_summary_default.rda")
 pBlim <-
   probs %>%
   select(Btrigger:year, q50 = pBlim) %>%
@@ -53,9 +75,10 @@ dummy <-
 
 d2 %>%
   filter(variable %in% c("catch", "ssb", "refF", "pBlim"),
-         Btrigger == 40,
+         Btrigger == 600,
          Meanwtyears == 5,
-         FishingMortality %in% c(0.18, 0.20, 0.22, 0.26, 0.32)) %>%
+         MaxChange == 3,
+         FishingMortality %in% c(0.18, 0.19, 0.20, 0.22, 0.25, 0.30, 0.35)) %>%
   mutate(variablef = factor(variable, levels=c('ssb','catch','refF','pBlim'))) %>%
   ggplot(aes(year)) +
   geom_vline(xintercept = 2015) +
@@ -64,7 +87,25 @@ d2 %>%
   geom_ribbon(aes(ymin = q25, ymax = q75), fill = "red", alpha = 0.25) +
   geom_line(aes(y = q50)) +
   facet_grid(variablef ~ FishingMortality, scale = "free_y") +
-  expand_limits(y = 0)
+  expand_limits(y = 0) +
+  labs(title = "Default run, no trigger (value used 600kt), no buffer, weights last 5 years",
+       subtitle = "Data show q05, q25, median, q75 and q95")
+```
+
+In the tables below we have 4 variables:
+
+* MaxChange: The catch stabilizer, if 3 then effectively this means no catch stabilizer
+* term: The time period
+    - LT: 2033-2085
+    - MT: 2023-2032
+    - ST: 2018:2022
+* Btrigger: Here the lowest value is 600 kt, set because a value of 40 kt resulted in crashing under some scenarios. Effectively the lowest value is equivalent to no Btrigger under likely fishing mortality multipliers.
+* Meanwtyears
+    - 5: Mean weights last 5 years
+    - 20: Mean weights last 20 years
+
+
+```{r}
 # We need to evaluate short-term (ST), medium-term (MT) and long-term (LT)
 # (2018-2022), medium term (2023-2032) and long term (2033-2052)
 terms <- data_frame(year = 2018:2052,
@@ -75,19 +116,19 @@ ptable <-
   left_join(terms) %>%
   filter(!is.na(term),
          FishingMortality < 0.36) %>%
-  group_by(Btrigger, Meanwtyears, FishingMortality, term) %>%
+  group_by(MaxChange, term, Btrigger, Meanwtyears, FishingMortality) %>%
   summarise(pBlim = round(max(pBlim) * 100, 1)) %>%
   ungroup() %>%
   #filter(term == "LT") %>%
   spread(FishingMortality, pBlim) %>%
-  arrange(term, Meanwtyears, Btrigger)
+  arrange(desc(MaxChange), term, Meanwtyears, Btrigger)
 ptable %>%
   knitr::kable(caption = "Probability of ssb going below Blim")
 d3 <-
   d2 %>%
   left_join(terms) %>% 
   filter(!is.na(term)) %>% 
-  group_by(Btrigger, Meanwtyears, FishingMortality, term, variable) %>% 
+  group_by(MaxChange, term, Btrigger, Meanwtyears, FishingMortality, variable) %>% 
   # Not sure if one should take the mean of the medians??
   summarise(median = mean(q50))
 d3 %>% 
@@ -96,7 +137,7 @@ d3 %>%
   select(-variable) %>% 
   mutate(median = round(median, 3)) %>% 
   spread(FishingMortality, median) %>% 
-  arrange(term, Meanwtyears, Btrigger) %>% 
+  arrange(desc(MaxChange), term, Meanwtyears, Btrigger) %>% 
   knitr::kable(caption = "Median catch")
 d3 %>% 
   filter(variable == "ssb",
@@ -104,11 +145,11 @@ d3 %>%
   select(-variable) %>% 
   mutate(median = round(median, 3)) %>% 
   spread(FishingMortality, median) %>% 
-  arrange(term, Meanwtyears, Btrigger) %>% 
+  arrange(desc(MaxChange), term, Meanwtyears, Btrigger) %>% 
   knitr::kable(caption = "Median ssb")
 ```
 
-```{r, eval = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 # NOT RUN
 basedir <- "/net/hafkaldi/export/u2/reikn/hoski/Mackerel"
 subdirs <- c("HockeyAcf0008PinFile",
