@@ -317,6 +317,22 @@ rbya %>%
 
 We observe here that in the years 2009 to 2012 a mass of some 250 kt was added annually to the stock (a total sum of some 1.1 mt). In year 2013 a mass close to 900 kt was added (a lot of it in older age groups), a value that is close to the yield in that year. If one runs the assessment as if the assessment year was 2014 (i.e. when the 2014 catches are not input into the model) one does not observe this process error in 2013. It is difficult to try to understand where sam picks up the signal that resutls large process error estimation in 2013, although some guestimates could be provided.
 
+Addendums: Is Carmen's calculation of the process errors the same:
+```{r}
+library(stringr)
+load("data/cm_perror.rda")
+cm_perror %>% 
+  gather(age, cm_pm, -year) %>% 
+  mutate(age = as.integer(str_replace(age, "V", "")) - 1) %>% 
+  full_join(rbya %>% select(year, age, p.m)) %>% 
+  # Carmen does the inverse of mine, hence:
+  mutate(d = p.m + cm_pm) %>% 
+  filter(abs(d) > 0.000001)
+```
+
+Guess the above code shows that the two independent derivation are the same.
+
+
 ### Just for the record
 
 Below are the package version used to generate the document:
