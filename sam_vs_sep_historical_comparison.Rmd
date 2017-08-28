@@ -13,7 +13,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
-![](gagnakvorn.png)
+![](img/gagnakvorn.png)
 
 
 # Preamble
